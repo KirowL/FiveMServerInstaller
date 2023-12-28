@@ -1,0 +1,139 @@
+#!/bin/bash
+
+_HELP_ENABLED=0
+_INSTALL_ENABLED=0
+_VERSIONS_ENABLED=0
+_UPDATE_ENABLED=0
+_BACKUP_ENABLED=0
+_RUN_ENABLED=0
+_TXADMIN_ENABLED=0
+
+_CONTENT=$(curl -s https://changelogs-live.fivem.net/api/changelog/versions/linux/server)
+_LAST_VERSION=$(echo $_CONTENT | grep -oP '(?<="latest":")[^"]*' | cut -d '"' -f 1)
+_LAST_VERSION_URL=$(echo $_CONTENT | grep -oP '(?<="latest_download":")[^"]*' | cut -d '"' -f 2)
+_RECOMMENDED_VERSION=$(echo $_CONTENT | grep -oP '(?<="recommended":")[^"]*' | cut -d '"' -f 1)
+_RECOMMENDED_VERSION_URL=$(echo $_CONTENT | grep -oP '(?<="recommended_download":")[^"]*' | cut -d '"' -f 2)
+
+function show_help() {
+	echo "Usage: $0 <params>"
+	echo "-h | --help: Show help"
+	echo "-i | --install: Install server"
+	echo "-u | --update: Update server"
+	echo "-b | --backup: Backup server"
+	echo "-v | --versions: Get fivem artifacts versions"
+	echo "-r | --run | -s | --start: Run server"
+	echo "-tx | --txadmin: Run txAdmin"
+}
+
+function get_versions() {
+	echo "Last version: $_LAST_VERSION"
+	echo "Recommended version: $_RECOMMENDED_VERSION"
+}
+
+function download_artifacts() {
+	echo "Choose which version to install:"
+	echo "1. Recommended version ($_RECOMMENDED_VERSION)"
+	echo "2. Last version ($_LAST_VERSION)"
+	read -p "Enter your choice: " choice
+
+	case $choice in
+		1) 
+			echo "Installing recommended version ($_RECOMMENDED_VERSION)..."
+			wget -O fx.tar.xz $_RECOMMENDED_VERSION_URL
+			;;
+		2)
+			echo "Installing last version ($_LAST_VERSION)..."
+			wget -O fx.tar.xz $_LAST_VERSION_URL
+			;;
+		*)
+			echo "Invalid choice"
+			exit 1
+			;;
+	esac
+
+	tar xf fx.tar.xz
+	rm fx.tar.xz
+	echo "Artifacts download finished"
+}
+
+function install() {
+	rm -rf alpine 
+	rm -rf cache
+	rm -rf server-data
+	rm -rf txData
+	rm run.sh
+	download_artifacts
+	echo "Clone server-data repository..."
+	git clone https://github.com/citizenfx/cfx-server-data.git server-data
+	cd server-data
+	wget https://pastebin.com/raw/xNGuPCek -O server.cfg
+	echo "\n" >> server.cfg
+	echo "Installation finished"
+
+	echo "Enter your server name, empty if you want to change it later in your server.cfg:"
+	read -p "Server name: " server_name
+	if [ -z "$server_name" ]; then
+		echo "Server name not set"
+	else
+		sed -i "s/sv_hostname \".*\"/sv_hostname \"$server_name\"/g" server.cfg
+	fi
+
+	echo "Enter your steam web API key (https://steamcommunity.com/dev/apikey), empty if you want to change it later in your server.cfg:"
+	read -p "Steam web API key: " steam_api_key
+	if [ -z "$steam_api_key" ]; then
+		echo "Steam web API key not set"
+	else
+		sed -i "s/steam_webApiKey \".*\"/steam_webApiKey \"$steam_api_key\"/g" server.cfg
+	fi
+
+	echo "Enter your license key, empty if you want to change it later in your server.cfg:"
+	read -p "License key: " license_key
+
+	if [ -z "$license_key" ]; then
+		echo "License key not set"
+	else
+		sed -i "s/sv_licenseKey .*/sv_licenseKey \"$license_key\"/" server.cfg
+	fi
+}
+
+function update() {
+	echo "Updating server..."
+	rm -rf alpine 
+	rm run.sh
+	download_artifacts
+	echo "Update finished. If you are using txAdmin, do not forget to restart it !"
+}
+
+function backup() {
+	echo "Backing up server..."
+	# tar with date
+	tar -czf server-data-$(date +%Y-%m-%d).tar.gz  alpine server-data run.sh
+	echo "Backup finished"
+}
+
+if [ $# -eq 0 ]; then
+	show_help
+	exit 1
+fi
+
+while [ $# -gt 0 ];
+do 
+	case $1 in
+		-h|--help) _HELP_ENABLED=1; shift;;
+		-i|--install) _INSTALL_ENABLED=1; shift;;
+		-u|--update) _UPDATE_ENABLED=1; shift;;
+		-b|--backup) _BACKUP_ENABLED=1; shift;;
+		-v|--versions) _VERSIONS_ENABLED=1; shift;;
+		-r|--run|-s|--start) _RUN_ENABLED=1; shift;;
+		-tx|--txadmin) _TXADMIN_ENABLED=1; shift;;
+		*) _HELP_ENABLED=1; shift;;
+	esac
+done
+
+[ $_HELP_ENABLED -eq 1 ] && show_help; 
+[ $_INSTALL_ENABLED -eq 1 ] && install;
+[ $_VERSIONS_ENABLED -eq 1 ] && get_versions;
+[ $_UPDATE_ENABLED -eq 1 ] && update;
+[ $_BACKUP_ENABLED -eq 1 ] && backup;
+[ $_RUN_ENABLED -eq 1 ] && ./run.sh +exec server-data/server.cfg;
+[ $_TXADMIN_ENABLED -eq 1 ] && ./run.sh;
